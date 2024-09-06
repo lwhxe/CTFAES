@@ -38,22 +38,6 @@ const uint8_t sbox[256] = {
     0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16
 };
 
-// Multiplication in GF(2^8)
-uint8_t gmul(uint8_t a, uint8_t b) {
-    uint8_t p = 0;
-    for (int i = 0; i < 8; i++) {
-        if (b & 1)
-            p ^= a;
-        bool hi_bit_set = (a & 0x80);
-        a <<= 1;
-        if (hi_bit_set)
-            a ^= 0x1B; // x^8 + x^4 + x^3 + x + 1
-        b >>= 1;
-    }
-    return p;
-}
-
-// SubBytes step
 void SubBytes(uint8_t state[4][4]) {
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 4; j++) {
@@ -64,28 +48,30 @@ void SubBytes(uint8_t state[4][4]) {
 
 // ShiftRows step
 void ShiftRows(uint8_t state[4][4]) {
-    uint8_t temp;
-    // Row 1: shift left by 1
-    temp = state[1][0]; state[1][0] = state[1][1]; state[1][1] = state[1][2]; state[1][2] = state[1][3]; state[1][3] = temp;
-    // Row 2: shift left by 2
-    temp = state[2][0]; state[2][0] = state[2][2]; state[2][2] = temp;
-    temp = state[2][1]; state[2][1] = state[2][3]; state[2][3] = temp;
-    // Row 3: shift left by 3 (or right by 1)
-    temp = state[3][3]; state[3][3] = state[3][2]; state[3][2] = state[3][1]; state[3][1] = state[3][0]; state[3][0] = temp;
+    uint8_t temp[4];
+
+    memcpy(temp, state[1], 4);
+    for (int i = 0; i < 4; i++) {
+        state[1][i] = temp[(i + 1) % 4];
+    }
+    memcpy(temp, state[2], 4);
+    for (int i = 0; i < 4; i++) {
+        state[2][i] = temp[(i + 2) % 4];
+    }
+    memcpy(temp, state[3], 4);
+    for (int i = 0; i < 4; i++) {
+        state[3][i] = temp[(i + 3) % 4];
+    }
 }
 
 // MixColumns step
 void MixColumns(uint8_t state[4][4]) {
-    uint8_t tmp[4];
-    for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 4; j++) {
-            tmp[j] = state[j][i];
-        }
-        state[0][i] = gmul(2, tmp[0]) ^ gmul(3, tmp[1]) ^ tmp[2] ^ tmp[3];
-        state[1][i] = tmp[0] ^ gmul(2, tmp[1]) ^ gmul(3, tmp[2]) ^ tmp[3];
-        state[2][i] = tmp[0] ^ tmp[1] ^ gmul(2, tmp[2]) ^ gmul(3, tmp[3]);
-        state[3][i] = gmul(3, tmp[0]) ^ tmp[1] ^ tmp[2] ^ gmul(2, tmp[3]);
-    }
+    uint8_t matrix[4][4] = { 
+        {2, 1, 1, 3}, 
+        {3, 2, 1, 1}, 
+        {1, 3, 2, 1}, 
+        {1, 1, 3, 2} 
+    };
 }
 
 // AddRoundKey step
@@ -97,40 +83,13 @@ void AddRoundKey(uint8_t state[4][4], const uint8_t roundKey[4][4]) {
     }
 }
 
-void aesenc(uint8_t state[4][4], const uint8_t roundKey[4][4], int version) {
-    // Define the four operations
-    std::array<std::function<void(uint8_t[4][4])>, 4> ops = {
-        [&](uint8_t s[4][4]) { ShiftRows(s); },
-        [&](uint8_t s[4][4]) { SubBytes(s); },
-        [&](uint8_t s[4][4]) { MixColumns(s); },
-        [&](uint8_t s[4][4]) { AddRoundKey(s, roundKey); }
-    };
-
-    // All possible permutations of the operations
-    const int permutations[24][4] = {
-        {0, 1, 2, 3}, {0, 1, 3, 2}, {0, 2, 1, 3}, {0, 2, 3, 1}, {0, 3, 1, 2}, {0, 3, 2, 1},
-        {1, 0, 2, 3}, {1, 0, 3, 2}, {1, 2, 0, 3}, {1, 2, 3, 0}, {1, 3, 0, 2}, {1, 3, 2, 0},
-        {2, 0, 1, 3}, {2, 0, 3, 1}, {2, 1, 0, 3}, {2, 1, 3, 0}, {2, 3, 0, 1}, {2, 3, 1, 0},
-        {3, 0, 1, 2}, {3, 0, 2, 1}, {3, 1, 0, 2}, {3, 1, 2, 0}, {3, 2, 0, 1}, {3, 2, 1, 0}
-    };
-
-    // Ensure version is within bounds
-    version = version % 24;
-
-    // Apply the operations in the order specified by the version
-    for (int i = 0; i < 4; i++) {
-        ops[permutations[version][i]](state);
-    }
+void aesenc(uint8_t state[4][4], const uint8_t roundKey[4][4]) {
+    SubBytes(state);
+    ShiftRows(state);
+    AddRoundKey(state, roundKey);
 }
 
-int main()
-{
-    uint8_t trueDATA[4][4] = {
-        {0xd4, 0xc1, 0xee, 0xd9},
-        {0xd8, 0x0c, 0x8c, 0x41},
-        {0x97, 0xfd, 0x8e, 0xcb},
-        {0x66, 0x51, 0x0f, 0xef}
-    };
+int main() {
     uint8_t DATA[4][4] = {
         {0xd4, 0xc1, 0xee, 0xd9},
         {0xd8, 0x0c, 0x8c, 0x41},
@@ -152,25 +111,10 @@ int main()
 
     std::cout << "Original DATA: " << std::endl;
     printMatrix(DATA);
-    
-    for (int i = 0; i < 24; i++) {
-        memcpy(DATA, &trueDATA, sizeof(DATA));
-        aesenc(DATA, ROUNDKEY, i);
-        std::cout << "After aesenc: " << std::endl;
-        printMatrix(DATA);
 
-        int inc = 0;
-        for (int j = 0; j < 4; j++) {
-            for (int k = 0; k < 4; k++) {
-                if (DATA[j][k] == WANTED[j][k]) {
-                    inc++;
-                }
-            }
-        }
-        if (inc == 16) {
-            std::cout << "It fucking worked" << std::endl;
-        }
-    }
+    aesenc(DATA, ROUNDKEY);
+    std::cout << "After aesenc: " << std::endl;
+    printMatrix(DATA);
 
     return 0;
 }
