@@ -64,14 +64,26 @@ void ShiftRows(uint8_t state[4][4]) {
     }
 }
 
-// MixColumns step
-void MixColumns(uint8_t state[4][4]) {
-    uint8_t matrix[4][4] = { 
-        {2, 1, 1, 3}, 
-        {3, 2, 1, 1}, 
-        {1, 3, 2, 1}, 
-        {1, 1, 3, 2} 
-    };
+// Multiply by x in GF(2^8)
+static uint8_t xtime(uint8_t x)
+{
+    return ((x << 1) ^ (((x >> 7) & 1) * 0x1b));
+}
+
+// MixColumns function mixes the columns of the state matrix
+static void MixColumns(uint8_t state[4][4])
+{
+    uint8_t i;
+    uint8_t Tmp, Tm, t;
+    for (i = 0; i < 4; ++i)
+    {
+        t = state[i][0];
+        Tmp = state[i][0] ^ state[i][1] ^ state[i][2] ^ state[i][3];
+        Tm = state[i][0] ^ state[i][1]; Tm = xtime(Tm);  state[i][0] ^= Tm ^ Tmp;
+        Tm = state[i][1] ^ state[i][2]; Tm = xtime(Tm);  state[i][1] ^= Tm ^ Tmp;
+        Tm = state[i][2] ^ state[i][3]; Tm = xtime(Tm);  state[i][2] ^= Tm ^ Tmp;
+        Tm = state[i][3] ^ t;           Tm = xtime(Tm);  state[i][3] ^= Tm ^ Tmp;
+    }
 }
 
 // AddRoundKey step
@@ -85,8 +97,13 @@ void AddRoundKey(uint8_t state[4][4], const uint8_t roundKey[4][4]) {
 
 void aesenc(uint8_t state[4][4], const uint8_t roundKey[4][4]) {
     SubBytes(state);
+    printMatrix(state);
     ShiftRows(state);
+    printMatrix(state);
+    MixColumns(state);
+    printMatrix(state);
     AddRoundKey(state, roundKey);
+    printMatrix(state);
 }
 
 int main() {
@@ -115,6 +132,18 @@ int main() {
     aesenc(DATA, ROUNDKEY);
     std::cout << "After aesenc: " << std::endl;
     printMatrix(DATA);
+
+    int inc = 0;
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            if (DATA[i][j] == WANTED[i][j]) {
+                inc++;
+            }
+        }
+    }
+    if (inc == 16) {
+        std::cout << "It fucking worked" << std::endl;
+    }
 
     return 0;
 }
